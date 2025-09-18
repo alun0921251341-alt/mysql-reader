@@ -11,6 +11,8 @@ function bindAllEvents() {
     const testBtn = document.getElementById('testBtn');
     const readBtn = document.getElementById('readBtn');
     const statsBtn = document.getElementById('statsBtn');
+    const openShopeeBtn = document.getElementById('openShopeeBtn');
+    const nextShopeeBtn = document.getElementById('nextShopeeBtn');
     
     if (saveBtn) {
         saveBtn.addEventListener('click', saveConfig);
@@ -24,16 +26,26 @@ function bindAllEvents() {
     if (statsBtn) {
         statsBtn.addEventListener('click', viewStats);
     }
+    if (openShopeeBtn) {
+        openShopeeBtn.addEventListener('click', openShopeeStore);
+    }
+    if (nextShopeeBtn) {
+        nextShopeeBtn.addEventListener('click', openNextShopeeStore);
+    }
     
     console.log('All events bound successfully');
 }
 
 // 載入設定
 function loadConfig() {
-    chrome.storage.sync.get(['apiUrl'], function(result) {
+    chrome.storage.sync.get(['apiUrl', 'currentIndex'], function(result) {
         const apiUrlInput = document.getElementById('apiUrl');
         if (apiUrlInput) {
             apiUrlInput.value = result.apiUrl || 'http://localhost:5000/api';
+        }
+        // 如果沒有索引，初始化為 0
+        if (result.currentIndex === undefined) {
+            chrome.storage.sync.set({currentIndex: 0});
         }
     });
 }
@@ -82,6 +94,121 @@ function testConnection() {
     });
 }
 
+// 開啟 Shopee 商店（從第一筆開始）
+function openShopeeStore() {
+    // 重置索引為 0
+    chrome.storage.sync.set({currentIndex: 0}, function() {
+        openShopeeStoreByIndex(0);
+    });
+}
+
+// 開啟下一個 Shopee 商店
+function openNextShopeeStore() {
+    chrome.storage.sync.get(['currentIndex'], function(result) {
+        const currentIndex = result.currentIndex || 0;
+        const nextIndex = currentIndex + 1;
+        openShopeeStoreByIndex(nextIndex);
+    });
+}
+
+// 根據索引開啟 Shopee 商店
+function openShopeeStoreByIndex(index) {
+    chrome.storage.sync.get(['apiUrl'], function(result) {
+        const apiUrl = result.apiUrl;
+        
+        if (!apiUrl) {
+            showStatus('請先設定 API URL', 'error');
+            return;
+        }
+        
+        showStatus(`🔄 正在獲取第 ${index + 1} 筆商店資料...`, 'success');
+        
+        // 使用 offset 來獲取指定位置的資料
+        fetch(apiUrl + `/users?limit=1&offset=${index}`)
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            })
+            .then(data => {
+                if (data.success && data.users && data.users.length > 0) {
+                    const user = data.users[0];
+                    const shopId = user.author_shopid || user.shopid;
+                    
+                    if (shopId) {
+                        // 記錄讀取活動
+                        logReadActivity([user], apiUrl);
+                        
+                        // 構建 Shopee 商店 URL
+                        const shopeeUrl = `https://shopee.tw/shop/${shopId}`;
+                        
+                        // 獲取螢幕尺寸並計算視窗位置
+                        chrome.system.display.getInfo((displays) => {
+                            const primaryDisplay = displays.find(d => d.isPrimary) || displays[0];
+                            const screenWidth = primaryDisplay.bounds.width;
+                            const screenHeight = primaryDisplay.bounds.height;
+                            
+                            // 計算視窗尺寸和位置
+                            const windowWidth = Math.floor(screenWidth / 4);  // 寬度為螢幕的 1/4
+                            const windowHeight = Math.floor(screenHeight / 2); // 高度為螢幕的 1/2
+                            const windowLeft = 0;  // 靠左邊
+                            const windowTop = 0;   // 靠上邊
+                            
+                            // 在新視窗中開啟
+                            chrome.windows.create({ 
+                                url: shopeeUrl,
+                                type: 'normal',
+                                width: windowWidth,
+                                height: windowHeight,
+                                left: windowLeft,
+                                top: windowTop,
+                                focused: true
+                            }, (window) => {
+                                // 發送消息給 background script 來處理自動點擊
+                                setTimeout(() => {
+                                    chrome.runtime.sendMessage({
+                                        action: 'autoClickChat',
+                                        tabId: window.tabs[0].id
+                                    });
+                                }, 3000); // 等待 3 秒讓頁面載入
+                            });
+                        });
+                        
+                        // 更新當前索引
+                        chrome.storage.sync.set({currentIndex: index});
+                        
+                        // 顯示當前位置
+                        updateCurrentIndexDisplay(index + 1);
+                        
+                        showStatus(`✅ 已開啟第 ${index + 1} 筆商店: ${shopId}`, 'success');
+                        
+                        // 顯示用戶資料
+                        displayUserData([user]);
+                    } else {
+                        showStatus(`❌ 第 ${index + 1} 筆資料找不到 ShopID`, 'error');
+                        // 如果沒有 ShopID，自動嘗試下一筆
+                        if (index < 1000) { // 防止無限循環
+                            setTimeout(() => openShopeeStoreByIndex(index + 1), 1000);
+                        }
+                    }
+                } else {
+                    if (index === 0) {
+                        showStatus(`❌ 無法獲取資料: ${data.message || '沒有資料'}`, 'error');
+                    } else {
+                        showStatus(`❌ 已到達資料末尾，重新從第一筆開始`, 'error');
+                        // 重置到第一筆
+                        setTimeout(() => openShopeeStoreByIndex(0), 1500);
+                    }
+                }
+            })
+            .catch(error => {
+                showStatus(`❌ 錯誤: ${error.message}`, 'error');
+            });
+    });
+}
+
 // 讀取資料
 function readData() {
     chrome.storage.sync.get(['apiUrl'], function(result) {
@@ -125,7 +252,7 @@ function readData() {
 function logReadActivity(users, apiUrl) {
     const logs = users.map(user => ({
         userid: user.userid,
-        shopid: user.shopid || null,
+        shopid: user.shopid || user.author_shopid || null,
         timestamp: new Date().toISOString()
     }));
     
@@ -160,9 +287,10 @@ function displayUserData(users) {
     users.slice(0, 3).forEach(user => {
         const item = document.createElement('div');
         item.className = 'data-item';
+        const shopId = user.author_shopid || user.shopid || 'N/A';
         item.innerHTML = `
             <div class="userid">UserID: ${user.userid || 'N/A'}</div>
-            <div>ShopID: ${user.author_shopid || 'N/A'}</div>
+            <div>ShopID: ${shopId}</div>
             <div style="font-size: 11px; color: #666;">
                 ${new Date().toLocaleString()}
             </div>
@@ -233,4 +361,17 @@ function showStatus(message, type) {
     setTimeout(() => {
         statusDiv.style.display = 'none';
     }, 3000);
+}
+
+// 更新當前索引顯示
+function updateCurrentIndexDisplay(position) {
+    const currentIndexSection = document.getElementById('currentIndexSection');
+    const currentIndexDisplay = document.getElementById('currentIndexDisplay');
+    
+    if (currentIndexDisplay) {
+        currentIndexDisplay.textContent = position;
+    }
+    if (currentIndexSection) {
+        currentIndexSection.style.display = 'block';
+    }
 }

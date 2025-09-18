@@ -46,6 +46,12 @@
             background: #ccc;
             cursor: not-allowed;
         }
+        .button.shopee {
+            background: #ee4d2d;
+        }
+        .button.shopee:hover {
+            background: #d73c1a;
+        }
         .status {
             margin: 10px 0;
             padding: 10px;
@@ -93,6 +99,15 @@
             font-weight: bold;
             color: #1a73e8;
         }
+        .current-index {
+            background: #e3f2fd;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 10px 0;
+            text-align: center;
+            font-size: 12px;
+            color: #1976d2;
+        }
     </style>
 </head>
 <body>
@@ -106,9 +121,17 @@
     <button class="button" id="saveBtn">💾 儲存設定</button>
     <button class="button" id="testBtn">🔗 測試連線</button>
     <button class="button" id="readBtn">📖 讀取資料</button>
+    <button class="button shopee" id="openShopeeBtn">🛒 開啟 Shopee 商店</button>
+    <button class="button shopee" id="nextShopeeBtn">⏭️ 下一個商店</button>
     <button class="button" id="statsBtn">📊 查看統計</button>
     
     <div id="status" style="display: none;"></div>
+    
+    <div id="currentIndexSection" style="display: none;">
+        <div class="current-index">
+            目前位置: 第 <span id="currentIndexDisplay">1</span> 筆
+        </div>
+    </div>
     
     <div id="statsSection" style="display: none;">
         <div class="stats">

@@ -5,11 +5,15 @@
   "description": "讀取 MySQL users_filtered_with_shopid 資料並記錄讀取時間",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "tabs",
+    "system.display",
+    "scripting"
   ],
   "host_permissions": [
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "https://shopee.tw/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -17,5 +21,12 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "MySQL Users Reader"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://shopee.tw/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
 }
